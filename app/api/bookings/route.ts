@@ -8,10 +8,10 @@ async function setup() {
     env.DB.prepare("CREATE INDEX IF NOT EXISTS bookings_machine_time_idx ON bookings (machine_id, start_at, end_at)"),
   ]);
   const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM machines").first<{n:number}>();
-  if (!count?.n) await env.DB.batch([
-    ["750MHz EPR装置","EPR分光装置","available"],["M3","実験装置","available"],["X-band","X-band EPR装置","available"],["1.5T-MRI","1.5テスラ MRI装置","available"],["GPU-01","GPUサーバー · GPU 1枚","available"]
+  if (!count?.n) await env.DB.batch(
+    [["750MHz EPR装置","EPR分光装置","available"],["M3","実験装置","available"],["X-band","X-band EPR装置","available"],["1.5T-MRI","1.5テスラ MRI装置","available"],["GPU-01","GPUサーバー · GPU 1枚","available"]]
       .map(x=>env.DB.prepare("INSERT INTO machines (name,spec,status) VALUES (?,?,?)").bind(...x))
-  ]);
+  );
   const legacy = await env.DB.prepare("SELECT name FROM machines WHERE id=1").first<{name:string}>();
   if (count?.n === 6 && legacy?.name === "GPU-01") await env.DB.batch([
     env.DB.prepare("UPDATE machines SET name='750MHz EPR装置', spec='EPR分光装置', status='available' WHERE id=1"),
