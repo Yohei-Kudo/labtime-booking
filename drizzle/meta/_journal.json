@@ -29,6 +29,13 @@
       "when": 1792788194599,
       "tag": "0003_flowery_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792790277417,
+      "tag": "0004_hard_mentallo",
+      "breakpoints": true
     }
   ]
 }

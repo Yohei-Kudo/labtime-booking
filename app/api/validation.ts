@@ -23,6 +23,8 @@ export function parseBookingInput(value: unknown): BookingInput | null {
   if (title.length > 100 || note.length > 500) return null;
   if (usageType !== "GPU" && usageType !== "CPU" && usageType !== "DEVICE") return null;
   if (!startAt || !endAt || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const quarterHour = /^\d{4}-\d{2}-\d{2}T\d{2}:(00|15|30|45)$/.test(startAt) && /^\d{4}-\d{2}-\d{2}T\d{2}:(00|15|30|45)$/.test(endAt);
+  if (!quarterHour) return null;
   if (end <= start || end.getTime() - start.getTime() > 31 * 24 * 60 * 60 * 1000) return null;
   return { machineId, usageType, title, startAt, endAt, note };
 }

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { currentIdentity, isAdmin, isAllowed } from "../auth";
+import { writeAuditLog } from "../audit";
 import { parseBookingInput } from "../validation";
 
 async function ensureMachines() {
@@ -34,8 +35,9 @@ export async function POST(req: Request) {
   if ((machine.name === "GPU-01") !== (body.usageType === "GPU" || body.usageType === "CPU")) return Response.json({ error: "invalid_usage_type" }, { status: 400 });
   const user = await env.DB.prepare("SELECT display_name AS displayName FROM users WHERE user_id=?").bind(identity.userId).first<{ displayName: string }>();
   if (!user?.displayName) return Response.json({ error: "profile_required" }, { status: 400 });
-  const conflict = await env.DB.prepare("SELECT id FROM bookings WHERE machine_id=? AND start_at < ? AND end_at > ? LIMIT 1").bind(body.machineId, body.endAt, body.startAt).first();
-  if (conflict) return Response.json({ error: "conflict" }, { status: 409 });
-  const booking = await env.DB.prepare("INSERT INTO bookings (machine_id,user_id,user_name,usage_type,title,start_at,end_at,note,created_at) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id,machine_id AS machineId,user_name AS userName,usage_type AS usageType,title,start_at AS startAt,end_at AS endAt,note").bind(body.machineId, identity.userId, user.displayName, body.usageType, body.title, body.startAt, body.endAt, body.note, new Date().toISOString()).first();
+  const booking = await env.DB.prepare("INSERT INTO bookings (machine_id,user_id,user_name,usage_type,title,start_at,end_at,note,created_at) SELECT ?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM bookings WHERE machine_id=? AND start_at < ? AND end_at > ?) RETURNING id,machine_id AS machineId,user_name AS userName,usage_type AS usageType,title,start_at AS startAt,end_at AS endAt,note")
+    .bind(body.machineId, identity.userId, user.displayName, body.usageType, body.title, body.startAt, body.endAt, body.note, new Date().toISOString(), body.machineId, body.endAt, body.startAt).first();
+  if (!booking) return Response.json({ error: "conflict" }, { status: 409 });
+  await writeAuditLog({ actorId: identity.userId, actorName: user.displayName, action: "booking_created", targetType: "booking", targetId: String(booking.id), summary: `${machine.name} ${body.startAt}〜${body.endAt}` });
   return Response.json({ ...booking, isMine: true }, { status: 201 });
 }

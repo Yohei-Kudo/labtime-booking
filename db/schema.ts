@@ -25,3 +25,14 @@ export const bookings = sqliteTable("bookings", {
   note: text("note").notNull().default(""),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("bookings_machine_time_idx").on(table.machineId, table.startAt, table.endAt)]);
+
+export const auditLogs = sqliteTable("audit_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  actorId: text("actor_id").notNull(),
+  actorName: text("actor_name").notNull(),
+  action: text("action").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  summary: text("summary").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("audit_logs_created_at_idx").on(table.createdAt)]);
