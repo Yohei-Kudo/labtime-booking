@@ -8,6 +8,13 @@
       "when": 1783646697523,
       "tag": "0000_faithful_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783675266173,
+      "tag": "0001_quick_purifiers",
+      "breakpoints": true
     }
   ]
 }

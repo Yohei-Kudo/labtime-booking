@@ -1,98 +1,89 @@
-# vinext-starter
+# LabTime
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+研究室の実験装置・GPUサーバーの利用時間を管理する内部向け予約ツールです。
 
-## Prerequisites
+## 現在の構成
 
-- Node.js `>=22.13.0`
+- Webアプリ: Vinext / React / TypeScript
+- 実行環境: Cloudflare Workers
+- データベース: Cloudflare D1
+- 認証・アクセス制限: Cloudflare Access
+- 公開URL: <https://labtime-booking.y-kudo1227.workers.dev>
 
-## Quick Start
+対象機器は、750MHz EPR装置、M3、X-band、1.5T-MRI、GPU-01です。
+
+## 主な機能
+
+- 日表示・週表示の予約カレンダー
+- 1時間単位および複数日にまたがる予約
+- 同一機器・同一時間帯の重複防止
+- GPU-01のGPU利用／CPUのみ利用の区分
+- 利用者の表示名登録
+- 本人による予約変更・削除
+- 管理者による全予約と機器状態の管理
+
+## ローカル開発
+
+Node.js 22.13以上を使用します。
 
 ```bash
 npm install
 npm run dev
+```
+
+ローカル環境では、管理者 `y.kudo@ist.hokudai.ac.jp` として動作します。ローカルのD1データは `.wrangler/` 以下に作成され、Gitには含まれません。
+
+## 確認コマンド
+
+```bash
+npm run lint
 npm run build
+npm test
 ```
 
-This starter does not use `wrangler.jsonc`.
+## Cloudflareへの公開
 
-## Included Shape
+Cloudflareへのログイン後、次のコマンドで公開します。
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npx wrangler login
+npm run build
+npx wrangler deploy
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+公開前に、Cloudflare AccessがProductionのWorker URLを保護していることを確認してください。Accessを外した状態で公開しないでください。
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## データとプライバシー
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+- 氏名とメールアドレスは現在D1内で紐づけて保存されます。
+- 他の一般利用者へメールアドレスは返しません。
+- 予約の表示名、用途、日時、備考は許可された利用者間で共有されます。
+- 用途・備考には、被験者情報、個人情報、機密性の高い研究情報を入力しないでください。
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+メールアドレスを匿名化IDへ移行するまでは、現行仕様であることを運用者が把握してください。
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+## 管理者
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+現在の管理者は `app/api/auth.ts` の `ADMIN_EMAILS` で指定しています。管理者交代時には、後任者のメールへ変更して再公開します。
 
-## Useful Commands
+将来的には、コード変更なしで管理者を交代できる仕組みに移行する予定です。
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+## 引き継ぎ時の確認事項
 
-## Learn More
+1. GitHubリポジトリの所有権または管理権限を後任者へ渡す
+2. Cloudflareアカウントへ後任者をメンバーとして追加する
+3. Workers、D1、Accessポリシーを後任者が確認できるようにする
+4. 後任者の端末でビルドとテストを実行する
+5. 後任者自身でテスト公開または本番公開を実行する
+6. 管理者メールとAccess許可リストを更新する
+7. 旧管理者の不要な権限を削除する
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+アカウントのパスワードやAPIトークンは共有せず、GitHubとCloudflareのメンバー招待機能を使用してください。
+
+## セキュリティ上の注意
+
+- GitHubリポジトリはPrivateを維持する
+- `.env*`、APIトークン、秘密鍵をコミットしない
+- Cloudflare管理者はMFAを有効にする
+- 依存パッケージを定期的に更新する
+- 変更後は `npm run lint` と `npm run build` を通す

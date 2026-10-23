@@ -7,6 +7,12 @@ export const machines = sqliteTable("machines", {
   status: text("status").notNull().default("available"),
 });
 
+export const users = sqliteTable("users", {
+  email: text("email").primaryKey(),
+  displayName: text("display_name").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const bookings = sqliteTable("bookings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   machineId: integer("machine_id").notNull(),
