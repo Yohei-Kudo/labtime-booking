@@ -47,26 +47,30 @@ Cloudflareへのログイン後、次のコマンドで公開します。
 
 ```bash
 npx wrangler login
+npx wrangler secret put IDENTITY_PEPPER
+npx wrangler secret put ADMIN_EMAILS
 npm run build
+npx wrangler d1 migrations apply labtime-db --remote
 npx wrangler deploy
 ```
+
+`IDENTITY_PEPPER` には32バイト以上のランダム値を設定します。一度運用を始めた後は、値を失うと既存予約と利用者を紐づけられなくなるため、Cloudflareの管理権限と合わせて安全に引き継いでください。`ADMIN_EMAILS` は管理者メールをカンマ区切りで指定します。どちらもGitには保存しません。
+
+`0002_familiar_leech.sql` は旧形式のプロフィールと予約を削除するプライバシー移行です。本番適用前に件数を確認し、必要な予約がある場合は移行作業を別途行ってください。
 
 公開前に、Cloudflare AccessがProductionのWorker URLを保護していることを確認してください。Accessを外した状態で公開しないでください。
 
 ## データとプライバシー
 
-- 氏名とメールアドレスは現在D1内で紐づけて保存されます。
-- 他の一般利用者へメールアドレスは返しません。
+- メールアドレスはCloudflare Accessでの認可と、秘密値を使った匿名ID生成にだけ利用します。
+- D1にはメールアドレスを保存せず、元のメールアドレスへ戻せないHMAC-SHA-256の匿名IDを保存します。
+- ブラウザへ返す予約データにもメールアドレスを含めません。
 - 予約の表示名、用途、日時、備考は許可された利用者間で共有されます。
 - 用途・備考には、被験者情報、個人情報、機密性の高い研究情報を入力しないでください。
 
-メールアドレスを匿名化IDへ移行するまでは、現行仕様であることを運用者が把握してください。
-
 ## 管理者
 
-現在の管理者は `app/api/auth.ts` の `ADMIN_EMAILS` で指定しています。管理者交代時には、後任者のメールへ変更して再公開します。
-
-将来的には、コード変更なしで管理者を交代できる仕組みに移行する予定です。
+管理者はCloudflare WorkerのSecret `ADMIN_EMAILS` で指定します。管理者交代時はCloudflare上の値を変更して再公開し、コードへメールアドレスを記録しません。
 
 ## 引き継ぎ時の確認事項
 

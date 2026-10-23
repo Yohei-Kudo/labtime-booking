@@ -1,27 +1,41 @@
 import { env } from "cloudflare:workers";
-import { currentEmail, isAdmin, isAllowed } from "../auth";
+import { currentIdentity, isAdmin, isAllowed } from "../auth";
+import { parseBookingInput } from "../validation";
 
-async function setup() {
-  await env.DB.batch([
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS machines (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, spec TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'available')"),
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, machine_id INTEGER NOT NULL, user_email TEXT NOT NULL, user_name TEXT NOT NULL, usage_type TEXT NOT NULL, title TEXT NOT NULL, start_at TEXT NOT NULL, end_at TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)"),
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, display_name TEXT NOT NULL, updated_at TEXT NOT NULL)"),
-    env.DB.prepare("CREATE INDEX IF NOT EXISTS bookings_machine_time_idx ON bookings (machine_id, start_at, end_at)"),
-  ]);
-  const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM machines").first<{n:number}>();
-  if (!count?.n) await env.DB.batch(
-    [["750MHz EPR装置","EPR分光装置","available"],["M3","実験装置","available"],["X-band","X-band EPR装置","available"],["1.5T-MRI","1.5テスラ MRI装置","available"],["GPU-01","GPUサーバー · GPU 1枚","available"]]
-      .map(x=>env.DB.prepare("INSERT INTO machines (name,spec,status) VALUES (?,?,?)").bind(...x))
-  );
-  const legacy = await env.DB.prepare("SELECT name FROM machines WHERE id=1").first<{name:string}>();
-  if (count?.n === 6 && legacy?.name === "GPU-01") await env.DB.batch([
-    env.DB.prepare("UPDATE machines SET name='750MHz EPR装置', spec='EPR分光装置', status='available' WHERE id=1"),
-    env.DB.prepare("UPDATE machines SET name='M3', spec='実験装置', status='available' WHERE id=2"),
-    env.DB.prepare("UPDATE machines SET name='X-band', spec='X-band EPR装置', status='available' WHERE id=3"),
-    env.DB.prepare("UPDATE machines SET name='1.5T-MRI', spec='1.5テスラ MRI装置', status='available' WHERE id=4"),
-    env.DB.prepare("UPDATE machines SET name='GPU-01', spec='GPUサーバー · GPU 1枚', status='available' WHERE id=5"),
-    env.DB.prepare("DELETE FROM machines WHERE id=6"),
-  ]);
+async function ensureMachines() {
+  const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM machines").first<{ n: number }>();
+  if (!count?.n) {
+    await env.DB.batch(
+      [["750MHz EPR装置", "EPR分光装置", "available"], ["M3", "実験装置", "available"], ["X-band", "X-band EPR装置", "available"], ["1.5T-MRI", "1.5テスラ MRI装置", "available"], ["GPU-01", "GPUサーバー · GPU 1枚", "available"]]
+        .map((row) => env.DB.prepare("INSERT INTO machines (name,spec,status) VALUES (?,?,?)").bind(...row)),
+    );
+  }
 }
-export async function GET() { await setup(); const email=await currentEmail(); if(!isAllowed(email))return Response.json({error:"email_not_allowed"},{status:403}); const [m,b,u]=await Promise.all([env.DB.prepare("SELECT id,name,spec,status FROM machines ORDER BY id").all(),env.DB.prepare("SELECT id,machine_id AS machineId,user_name AS userName,usage_type AS usageType,title,start_at AS startAt,end_at AS endAt,note,CASE WHEN user_email=? THEN 1 ELSE 0 END AS isMine FROM bookings ORDER BY start_at").bind(email).all(),env.DB.prepare("SELECT display_name AS displayName FROM users WHERE email=?").bind(email).first<{displayName:string}>()]); return Response.json({machines:m.results,bookings:b.results,currentEmail:email,currentName:u?.displayName||null,isAdmin:isAdmin(email)}); }
-export async function POST(req: Request) { await setup(); const body=await req.json() as Record<string, string|number>; const email=await currentEmail(); if(!isAllowed(email))return Response.json({error:"email_not_allowed"},{status:403}); const user=await env.DB.prepare("SELECT display_name AS displayName FROM users WHERE email=?").bind(email).first<{displayName:string}>(); if(!user?.displayName)return Response.json({error:"profile_required"},{status:400}); const conflict=await env.DB.prepare("SELECT id FROM bookings WHERE machine_id=? AND start_at < ? AND end_at > ? LIMIT 1").bind(body.machineId,body.endAt,body.startAt).first(); if(conflict)return Response.json({error:"conflict"},{status:409}); const r=await env.DB.prepare("INSERT INTO bookings (machine_id,user_email,user_name,usage_type,title,start_at,end_at,note,created_at) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id,machine_id AS machineId,user_name AS userName,usage_type AS usageType,title,start_at AS startAt,end_at AS endAt,note").bind(body.machineId,email,user.displayName,body.usageType,body.title,body.startAt,body.endAt,body.note||"",new Date().toISOString()).first(); return Response.json({...r,isMine:true},{status:201}); }
+
+export async function GET() {
+  const identity = await currentIdentity();
+  if (!isAllowed(identity.email)) return Response.json({ error: "email_not_allowed" }, { status: 403 });
+  await ensureMachines();
+  const [machines, bookings, user] = await Promise.all([
+    env.DB.prepare("SELECT id,name,spec,status FROM machines ORDER BY id").all(),
+    env.DB.prepare("SELECT id,machine_id AS machineId,user_name AS userName,usage_type AS usageType,title,start_at AS startAt,end_at AS endAt,note,CASE WHEN user_id=? THEN 1 ELSE 0 END AS isMine FROM bookings ORDER BY start_at").bind(identity.userId).all(),
+    env.DB.prepare("SELECT display_name AS displayName FROM users WHERE user_id=?").bind(identity.userId).first<{ displayName: string }>(),
+  ]);
+  return Response.json({ machines: machines.results, bookings: bookings.results, currentName: user?.displayName || null, isAdmin: isAdmin(identity.email, identity.local) });
+}
+
+export async function POST(req: Request) {
+  const identity = await currentIdentity();
+  if (!isAllowed(identity.email)) return Response.json({ error: "email_not_allowed" }, { status: 403 });
+  const body = parseBookingInput(await req.json());
+  if (!body) return Response.json({ error: "invalid_booking" }, { status: 400 });
+  const machine = await env.DB.prepare("SELECT name,status FROM machines WHERE id=?").bind(body.machineId).first<{ name: string; status: string }>();
+  if (!machine || machine.status !== "available") return Response.json({ error: "machine_unavailable" }, { status: 409 });
+  if ((machine.name === "GPU-01") !== (body.usageType === "GPU" || body.usageType === "CPU")) return Response.json({ error: "invalid_usage_type" }, { status: 400 });
+  const user = await env.DB.prepare("SELECT display_name AS displayName FROM users WHERE user_id=?").bind(identity.userId).first<{ displayName: string }>();
+  if (!user?.displayName) return Response.json({ error: "profile_required" }, { status: 400 });
+  const conflict = await env.DB.prepare("SELECT id FROM bookings WHERE machine_id=? AND start_at < ? AND end_at > ? LIMIT 1").bind(body.machineId, body.endAt, body.startAt).first();
+  if (conflict) return Response.json({ error: "conflict" }, { status: 409 });
+  const booking = await env.DB.prepare("INSERT INTO bookings (machine_id,user_id,user_name,usage_type,title,start_at,end_at,note,created_at) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id,machine_id AS machineId,user_name AS userName,usage_type AS usageType,title,start_at AS startAt,end_at AS endAt,note").bind(body.machineId, identity.userId, user.displayName, body.usageType, body.title, body.startAt, body.endAt, body.note, new Date().toISOString()).first();
+  return Response.json({ ...booking, isMine: true }, { status: 201 });
+}

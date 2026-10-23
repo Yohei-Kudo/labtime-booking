@@ -1,0 +1,1 @@
+CREATE INDEX `bookings_machine_time_idx` ON `bookings` (`machine_id`,`start_at`,`end_at`);

@@ -21,10 +21,17 @@ const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.get
 const mondayOf = (d: Date) => { const x = new Date(d); const day = x.getDay() || 7; x.setDate(x.getDate()-day+1); x.setHours(0,0,0,0); return x; };
 const fmtDate = (d: Date) => new Intl.DateTimeFormat("ja-JP", { month:"long", day:"numeric", weekday:"short" }).format(d);
 const usageLabel = (type: Booking["usageType"]) => type==="DEVICE" ? "装置利用" : type;
+const apiErrorMessage = (code?: string) => ({
+  conflict: "この時間帯には既に予約があります。",
+  machine_unavailable: "この機器は現在予約を受け付けていません。",
+  profile_required: "先に氏名を登録してください。",
+  forbidden: "この操作を行う権限がありません。",
+  invalid_booking: "入力内容を確認してください。予約は最長31日です。",
+  invalid_usage_type: "利用区分を確認してください。",
+}[code || ""] || "保存できませんでした。通信状態を確認して、もう一度お試しください。");
 
 export default function Home() {
   const [screen, setScreen] = useState<"calendar"|"mine"|"machines">("calendar");
-  const [currentEmail, setCurrentEmail] = useState("y.kudo@ist.hokudai.ac.jp");
   const [currentName, setCurrentName] = useState("");
   const [profileName, setProfileName] = useState("");
   const [profileModal, setProfileModal] = useState(false);
@@ -37,20 +44,20 @@ export default function Home() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<Booking|null>(null);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [machineModal, setMachineModal] = useState(false);
   const [machineEditing, setMachineEditing] = useState<Machine|null>(null);
   const [machineForm, setMachineForm] = useState({name:"",spec:"",status:"available"});
   const [form, setForm] = useState(() => { const start=today(); start.setHours(9); const end=new Date(start); end.setHours(10); return { machineId: 1, title:"", usageType:"DEVICE" as "GPU"|"CPU"|"DEVICE", startAt:isoLocal(start), endAt:isoLocal(end), note:"" }; });
 
   useEffect(() => {
-    fetch("/api/bookings").then(r => r.ok ? r.json() : Promise.reject()).then(data => {
+    fetch("/api/bookings").then(async r => r.ok ? r.json() : Promise.reject(await r.json().catch(()=>({})))).then(data => {
       if (data.machines?.length) setMachines(data.machines);
       if (data.bookings) setBookings(data.bookings);
-      if (data.currentEmail) setCurrentEmail(data.currentEmail);
       if (data.currentName) { setCurrentName(data.currentName); setProfileName(data.currentName); }
       else setProfileModal(true);
       setAdmin(!!data.isAdmin);
-    }).catch(() => {});
+    }).catch(() => setLoadError("予約情報を読み込めませんでした。ページを再読み込みしてください。"));
   }, []);
 
   const weekStart = useMemo(() => mondayOf(selectedDate), [selectedDate]);
@@ -66,28 +73,29 @@ export default function Home() {
     if (!form.title.trim() || new Date(form.endAt) <= new Date(form.startAt)) return setError("用途と正しい終了日時を入力してください。");
     const overlap = bookings.some(b => b.machineId===form.machineId && b.id!==editing?.id && new Date(form.startAt)<new Date(b.endAt) && new Date(form.endAt)>new Date(b.startAt));
     if (overlap) return setError("この時間帯には既に予約があります。");
-    const payload = {...form, userName:currentName};
+    const payload = {...form};
     try {
       const res = await fetch(editing ? `/api/bookings/${editing.id}` : "/api/bookings", {method: editing?"PUT":"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(payload)});
-      if (!res.ok) throw new Error(); const saved = await res.json();
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) return setError(apiErrorMessage(data.error));
+      const saved = data as Booking;
       setBookings(x => editing ? x.map(b=>b.id===editing.id?saved:b) : [...x,saved]);
-    } catch {
-      const saved: Booking = {id:editing?.id || Date.now(),...payload}; setBookings(x=>editing?x.map(b=>b.id===editing.id?saved:b):[...x,saved]);
-    }
+    } catch { return setError(apiErrorMessage()); }
     setModal(false);
   };
-  const remove = async () => { if(!editing) return; fetch(`/api/bookings/${editing.id}`,{method:"DELETE"}).catch(()=>{}); setBookings(x=>x.filter(b=>b.id!==editing.id)); setModal(false); };
+  const remove = async () => { if(!editing) return; setError(""); try{const r=await fetch(`/api/bookings/${editing.id}`,{method:"DELETE"});if(!r.ok){const data=await r.json().catch(()=>({}));return setError(apiErrorMessage(data.error))}setBookings(x=>x.filter(b=>b.id!==editing.id));setModal(false)}catch{return setError(apiErrorMessage())} };
   const openMachine = (m?:Machine) => { setMachineEditing(m||null); setMachineForm(m?{name:m.name,spec:m.spec,status:m.status}:{name:"",spec:"",status:"available"}); setMachineModal(true); };
-  const saveMachine = async () => { if(!machineForm.name.trim()) return; const saved:Machine={id:machineEditing?.id||Date.now(),...machineForm}; try{const r=await fetch(machineEditing?`/api/machines/${machineEditing.id}`:"/api/machines",{method:machineEditing?"PUT":"POST",headers:{"content-type":"application/json"},body:JSON.stringify(machineForm)});if(r.ok)Object.assign(saved,await r.json())}catch{} setMachines(x=>machineEditing?x.map(m=>m.id===machineEditing.id?saved:m):[...x,saved]);setMachineModal(false); };
+  const saveMachine = async () => { if(!machineForm.name.trim()) return; setError(""); try{const r=await fetch(machineEditing?`/api/machines/${machineEditing.id}`:"/api/machines",{method:machineEditing?"PUT":"POST",headers:{"content-type":"application/json"},body:JSON.stringify(machineForm)});const data=await r.json().catch(()=>({}));if(!r.ok)return setError(apiErrorMessage(data.error));const saved=data as Machine;setMachines(x=>machineEditing?x.map(m=>m.id===machineEditing.id?saved:m):[...x,saved]);setMachineModal(false)}catch{return setError(apiErrorMessage())} };
   const saveProfile = async () => { const name=profileName.trim(); if(!name)return setProfileError("氏名を入力してください。"); setProfileError(""); try{const r=await fetch("/api/profile",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({displayName:name})});if(!r.ok)throw new Error();const data=await r.json();setCurrentName(data.displayName);setProfileModal(false)}catch{setProfileError("保存できませんでした。もう一度お試しください。")} };
 
   return <main className="app-shell">
     <header className="topbar">
       <div><div className="brand-mark">LT</div><div><h1>LabTime</h1><p>マシンタイム予約</p></div></div>
       <nav><button className={screen==="calendar"?"nav-active":""} onClick={()=>setScreen("calendar")}>予約カレンダー</button><button className={screen==="mine"?"nav-active":""} onClick={()=>setScreen("mine")}>自分の予約</button>{admin&&<button className={screen==="machines"?"nav-active":""} onClick={()=>setScreen("machines")}>機器管理</button>}</nav>
-      <button className="user" style={{border:0,background:"none",cursor:"pointer"}} onClick={()=>{setProfileName(currentName);setProfileError("");setProfileModal(true)}} aria-label="氏名を変更"><span>{currentName||"氏名未登録"}</span><small>{currentEmail}</small><div className="avatar">{(currentName||"未").slice(0,1)}</div></button>
+      <button className="user" style={{border:0,background:"none",cursor:"pointer"}} onClick={()=>{setProfileName(currentName);setProfileError("");setProfileModal(true)}} aria-label="氏名を変更"><span>{currentName||"氏名未登録"}</span><small>ログイン中</small><div className="avatar">{(currentName||"未").slice(0,1)}</div></button>
       <a href="/cdn-cgi/access/logout" style={{color:"#68778a",fontSize:12,textDecoration:"none",padding:"8px 10px",border:"1px solid #d8e0e8",borderRadius:6}}>ログアウト</a>
     </header>
+    {loadError&&<div className="app-error" role="alert">{loadError}</div>}
     {screen==="calendar"&&<><section className="toolbar">
       <div className="view-switch"><button className={view==="day"?"active":""} onClick={()=>setView("day")}>日</button><button className={view==="week"?"active":""} onClick={()=>setView("week")}>週</button></div>
       <div className="date-nav"><button onClick={()=>setSelectedDate(addDays(selectedDate,view==="day"?-1:-7))}>‹</button><button className="today" onClick={()=>setSelectedDate(today())}>今日</button><button onClick={()=>setSelectedDate(addDays(selectedDate,view==="day"?1:7))}>›</button><strong>{view==="day"?fmtDate(selectedDate):`${fmtDate(weekStart)} — ${fmtDate(addDays(weekStart,6))}`}</strong></div>
@@ -120,7 +128,7 @@ export default function Home() {
       <label>備考（任意）<textarea placeholder="必要メモリ、長時間ジョブなど" value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label>
       {error&&<p className="error">{error}</p>}<div className="modal-actions">{editing&&<button className="danger" onClick={remove}>予約を削除</button>}<span/><button onClick={()=>setModal(false)}>キャンセル</button><button className="primary" onClick={save}>{editing?"変更を保存":"予約を確定"}</button></div>
     </section></div>}
-    {machineModal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setMachineModal(false)}}><section className="modal"><div className="modal-title"><div><p>機器管理</p><h2>{machineEditing?"機器を編集":"機器を追加"}</h2></div><button onClick={()=>setMachineModal(false)}>×</button></div><label>表示名<input value={machineForm.name} onChange={e=>setMachineForm({...machineForm,name:e.target.value})} placeholder="例：750MHz EPR装置"/></label><label>スペック・説明<input value={machineForm.spec} onChange={e=>setMachineForm({...machineForm,spec:e.target.value})} placeholder="例：EPR分光装置"/></label><label>予約受付状態<select value={machineForm.status} onChange={e=>setMachineForm({...machineForm,status:e.target.value})}><option value="available">予約受付中</option><option value="maintenance">利用停止・メンテナンス</option></select></label><div className="modal-actions"><span/><button onClick={()=>setMachineModal(false)}>キャンセル</button><button className="primary" onClick={saveMachine}>保存</button></div></section></div>}
-    {profileModal&&<div className="modal-backdrop"><section className="modal profile-modal"><div className="modal-title"><div><p>{currentName?"プロフィール":"初回設定"}</p><h2>{currentName?"氏名を変更":"氏名を登録してください"}</h2></div>{currentName&&<button onClick={()=>setProfileModal(false)}>×</button>}</div><p className="profile-copy">氏名とメールアドレスは本人確認と予約管理のために紐づけて保存します。他の利用者には氏名だけが表示され、メールアドレスは表示されません。</p><label>氏名<input autoFocus maxLength={40} value={profileName} onChange={e=>setProfileName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveProfile()}} placeholder="例：工藤 洋平"/></label>{profileError&&<p className="error">{profileError}</p>}<div className="modal-actions"><span/>{currentName&&<button onClick={()=>setProfileModal(false)}>キャンセル</button>}<button className="primary" onClick={saveProfile}>{currentName?"変更を保存":"登録して始める"}</button></div></section></div>}
+    {machineModal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setMachineModal(false)}}><section className="modal"><div className="modal-title"><div><p>機器管理</p><h2>{machineEditing?"機器を編集":"機器を追加"}</h2></div><button onClick={()=>setMachineModal(false)}>×</button></div><label>表示名<input value={machineForm.name} onChange={e=>setMachineForm({...machineForm,name:e.target.value})} placeholder="例：750MHz EPR装置"/></label><label>スペック・説明<input value={machineForm.spec} onChange={e=>setMachineForm({...machineForm,spec:e.target.value})} placeholder="例：EPR分光装置"/></label><label>予約受付状態<select value={machineForm.status} onChange={e=>setMachineForm({...machineForm,status:e.target.value})}><option value="available">予約受付中</option><option value="maintenance">利用停止・メンテナンス</option></select></label>{error&&<p className="error">{error}</p>}<div className="modal-actions"><span/><button onClick={()=>setMachineModal(false)}>キャンセル</button><button className="primary" onClick={saveMachine}>保存</button></div></section></div>}
+    {profileModal&&<div className="modal-backdrop"><section className="modal profile-modal"><div className="modal-title"><div><p>{currentName?"プロフィール":"初回設定"}</p><h2>{currentName?"氏名を変更":"氏名を登録してください"}</h2></div>{currentName&&<button onClick={()=>setProfileModal(false)}>×</button>}</div><p className="profile-copy">メールアドレスは本人確認と匿名IDの生成にだけ使い、予約データベースには保存しません。他の利用者には氏名だけが表示されます。</p><label>氏名<input autoFocus maxLength={40} value={profileName} onChange={e=>setProfileName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveProfile()}} placeholder="例：工藤 洋平"/></label>{profileError&&<p className="error">{profileError}</p>}<div className="modal-actions"><span/>{currentName&&<button onClick={()=>setProfileModal(false)}>キャンセル</button>}<button className="primary" onClick={saveProfile}>{currentName?"変更を保存":"登録して始める"}</button></div></section></div>}
   </main>;
 }

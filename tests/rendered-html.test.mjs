@@ -18,3 +18,15 @@ test("contains the LabTime application and a completed build", async () => {
   assert.match(page, /\/cdn-cgi\/access\/logout/);
   assert.doesNotMatch(page, /Your site is taking shape|Codex is working/i);
 });
+
+test("does not persist or return authenticated email addresses", async () => {
+  const [schema, bookings, profile] = await Promise.all([
+    readFile(new URL("db/schema.ts", projectRoot), "utf8"),
+    readFile(new URL("app/api/bookings/route.ts", projectRoot), "utf8"),
+    readFile(new URL("app/api/profile/route.ts", projectRoot), "utf8"),
+  ]);
+  assert.doesNotMatch(schema, /user_email|email:\s*text/);
+  assert.doesNotMatch(bookings, /currentEmail|user_email/);
+  assert.doesNotMatch(profile, /user_email|\(email/);
+  assert.match(bookings, /user_id/);
+});

@@ -15,6 +15,20 @@
       "when": 1783675266173,
       "tag": "0001_quick_purifiers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792788165496,
+      "tag": "0002_familiar_leech",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792788194599,
+      "tag": "0003_flowery_namora",
+      "breakpoints": true
     }
   ]
 }

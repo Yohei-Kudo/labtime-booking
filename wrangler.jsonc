@@ -13,7 +13,8 @@
     {
       "binding": "DB",
       "database_name": "labtime-db",
-      "database_id": "64e52ebc-00f5-40c6-a11d-16cfcefcb035"
+      "database_id": "64e52ebc-00f5-40c6-a11d-16cfcefcb035",
+      "migrations_dir": "drizzle"
     }
   ],
   "observability": { "enabled": true }
