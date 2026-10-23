@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 type Machine = { id: number; name: string; spec: string; status: string };
 type Booking = { id: number; machineId: number; isMine?: boolean; userName: string; usageType: "GPU" | "CPU" | "DEVICE"; title: string; startAt: string; endAt: string; note?: string };
@@ -23,6 +23,7 @@ const mondayOf = (d: Date) => { const x = new Date(d); const day = x.getDay() ||
 const fmtDate = (d: Date) => new Intl.DateTimeFormat("ja-JP", { month:"long", day:"numeric", weekday:"short" }).format(d);
 const fmtAuditDate = (value: string) => new Intl.DateTimeFormat("ja-JP", { timeZone:"Asia/Tokyo", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false }).format(new Date(value));
 const usageLabel = (type: Booking["usageType"]) => type==="DEVICE" ? "装置利用" : type;
+const subscribeToClient = () => () => {};
 const apiErrorMessage = (code?: string) => ({
   conflict: "この時間帯には既に予約があります。",
   machine_unavailable: "この機器は現在予約を受け付けていません。",
@@ -33,6 +34,7 @@ const apiErrorMessage = (code?: string) => ({
 }[code || ""] || "保存できませんでした。通信状態を確認して、もう一度お試しください。");
 
 export default function Home() {
+  const mounted = useSyncExternalStore(subscribeToClient, () => true, () => false);
   const [screen, setScreen] = useState<"calendar"|"mine"|"machines"|"history">("calendar");
   const [currentName, setCurrentName] = useState("");
   const [profileGroup, setProfileGroup] = useState<"EPR"|"MRI">("EPR");
@@ -67,6 +69,7 @@ export default function Home() {
   const weekStart = useMemo(() => mondayOf(selectedDate), [selectedDate]);
   const days = useMemo(() => Array.from({length:7},(_,i)=>addDays(weekStart,i)),[weekStart]);
   const hours = Array.from({length:24},(_,i)=>i);
+  if (!mounted) return <main className="app-shell" />;
   const openNew = (machineId=1, hour=9, day=selectedDate) => {
     const start = new Date(day); start.setHours(hour,0,0,0); const end = new Date(start); end.setHours(hour+1);
     const isGpu = machines.find(m=>m.id===machineId)?.name==="GPU-01";
