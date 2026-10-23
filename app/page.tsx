@@ -49,7 +49,7 @@ export default function Home() {
   const [machineModal, setMachineModal] = useState(false);
   const [machineEditing, setMachineEditing] = useState<Machine|null>(null);
   const [machineForm, setMachineForm] = useState({name:"",spec:"",status:"available"});
-  const [form, setForm] = useState(() => { const start=today(); start.setHours(9); const end=new Date(start); end.setHours(10); return { machineId: 1, title:"", usageType:"DEVICE" as "GPU"|"CPU"|"DEVICE", startAt:isoLocal(start), endAt:isoLocal(end), note:"" }; });
+  const [form, setForm] = useState(() => { const start=today(); start.setHours(9); const end=new Date(start); end.setHours(10); return { machineId: 1, usageType:"DEVICE" as "GPU"|"CPU"|"DEVICE", startAt:isoLocal(start), endAt:isoLocal(end), note:"" }; });
 
   useEffect(() => {
     fetch("/api/bookings").then(async r => r.ok ? r.json() : Promise.reject(await r.json().catch(()=>({})))).then(data => {
@@ -67,14 +67,14 @@ export default function Home() {
   const openNew = (machineId=1, hour=9, day=selectedDate) => {
     const start = new Date(day); start.setHours(hour,0,0,0); const end = new Date(start); end.setHours(hour+1);
     const isGpu = machines.find(m=>m.id===machineId)?.name==="GPU-01";
-    setEditing(null); setError(""); setForm({machineId,title:"",usageType:isGpu?"GPU":"DEVICE",startAt:isoLocal(start),endAt:isoLocal(end),note:""}); setModal(true);
+    setEditing(null); setError(""); setForm({machineId,usageType:isGpu?"GPU":"DEVICE",startAt:isoLocal(start),endAt:isoLocal(end),note:""}); setModal(true);
   };
-  const openEdit = (b: Booking) => { if(!admin&&!b.isMine)return; setEditing(b); setError(""); setForm({machineId:b.machineId,title:b.title,usageType:b.usageType,startAt:b.startAt.slice(0,16),endAt:b.endAt.slice(0,16),note:b.note||""}); setModal(true); };
+  const openEdit = (b: Booking) => { if(!admin&&!b.isMine)return; setEditing(b); setError(""); setForm({machineId:b.machineId,usageType:b.usageType,startAt:b.startAt.slice(0,16),endAt:b.endAt.slice(0,16),note:b.note||(b.title!=="予約"?b.title:"")}); setModal(true); };
   const save = async () => {
-    if (!form.title.trim() || new Date(form.endAt) <= new Date(form.startAt)) return setError("用途と正しい終了日時を入力してください。");
+    if (new Date(form.endAt) <= new Date(form.startAt)) return setError("正しい終了日時を入力してください。");
     const overlap = bookings.some(b => b.machineId===form.machineId && b.id!==editing?.id && new Date(form.startAt)<new Date(b.endAt) && new Date(form.endAt)>new Date(b.startAt));
     if (overlap) return setError("この時間帯には既に予約があります。");
-    const payload = {...form};
+    const payload = {...form, title:form.note.trim().slice(0,100)||"予約"};
     try {
       const res = await fetch(editing ? `/api/bookings/${editing.id}` : "/api/bookings", {method: editing?"PUT":"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(payload)});
       const data = await res.json().catch(()=>({}));
@@ -126,8 +126,7 @@ export default function Home() {
       <label>マシン<select value={form.machineId} onChange={e=>{const id=Number(e.target.value);setForm({...form,machineId:id,usageType:machines.find(m=>m.id===id)?.name==="GPU-01"?"GPU":"DEVICE"})}}>{machines.map(m=><option value={m.id} key={m.id}>{m.name} — {m.spec}</option>)}</select></label>
       <div className="two"><label>開始<input type="datetime-local" step="3600" value={form.startAt} onChange={e=>setForm({...form,startAt:e.target.value})}/></label><label>終了<input type="datetime-local" step="3600" value={form.endAt} onChange={e=>setForm({...form,endAt:e.target.value})}/></label></div>
       {machines.find(m=>m.id===form.machineId)?.name==="GPU-01"&&<label>利用区分<div className="radio-row"><button className={form.usageType==="GPU"?"chosen":""} onClick={()=>setForm({...form,usageType:"GPU"})}>GPUを使用</button><button className={form.usageType==="CPU"?"chosen":""} onClick={()=>setForm({...form,usageType:"CPU"})}>CPUのみ</button></div></label>}
-      <label>用途<input placeholder="例：画像分類モデルの学習" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label>
-      <label>備考（任意）<textarea placeholder="必要メモリ、長時間ジョブなど" value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label>
+      <label>備考（任意）<textarea placeholder="必要に応じて利用内容や連絡事項を入力" value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/></label>
       {error&&<p className="error">{error}</p>}<div className="modal-actions">{editing&&<button className="danger" onClick={remove}>予約を削除</button>}<span/><button onClick={()=>setModal(false)}>キャンセル</button><button className="primary" onClick={save}>{editing?"変更を保存":"予約を確定"}</button></div>
     </section></div>}
     {machineModal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setMachineModal(false)}}><section className="modal"><div className="modal-title"><div><p>機器管理</p><h2>{machineEditing?"機器を編集":"機器を追加"}</h2></div><button onClick={()=>setMachineModal(false)}>×</button></div><label>表示名<input value={machineForm.name} onChange={e=>setMachineForm({...machineForm,name:e.target.value})} placeholder="例：750MHz EPR装置"/></label><label>スペック・説明<input value={machineForm.spec} onChange={e=>setMachineForm({...machineForm,spec:e.target.value})} placeholder="例：EPR分光装置"/></label><label>予約受付状態<select value={machineForm.status} onChange={e=>setMachineForm({...machineForm,status:e.target.value})}><option value="available">予約受付中</option><option value="maintenance">利用停止・メンテナンス</option></select></label>{error&&<p className="error">{error}</p>}<div className="modal-actions"><span/><button onClick={()=>setMachineModal(false)}>キャンセル</button><button className="primary" onClick={saveMachine}>保存</button></div></section></div>}
