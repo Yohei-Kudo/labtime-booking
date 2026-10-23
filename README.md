@@ -8,7 +8,7 @@
 - 実行環境: Cloudflare Workers
 - データベース: Cloudflare D1
 - 認証・アクセス制限: Cloudflare Access
-- 公開URL: <https://labtime-booking.y-kudo1227.workers.dev>
+- 公開URL: <https://labtime-booking.mre-hokudai.workers.dev>
 
 対象機器は、750MHz EPR装置、M3、X-band、1.5T-MRI、GPU-01です。
 
