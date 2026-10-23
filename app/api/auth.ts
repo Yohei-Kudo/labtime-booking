@@ -18,7 +18,7 @@ export async function currentIdentity() {
   const email = (
     h.get("cf-access-authenticated-user-email") ||
     h.get("oai-authenticated-user-email") ||
-    (local ? "y.kudo@ist.hokudai.ac.jp" : "")
+    (local ? "local-admin@ist.hokudai.ac.jp" : "")
   ).trim().toLowerCase();
 
   if (!email) throw new Error("authenticated_email_missing");
@@ -36,5 +36,5 @@ export function isAllowed(email: string) {
 
 export function isAdmin(email: string, local = false) {
   const configured = (config().ADMIN_EMAILS || "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
-  return configured.includes(email) || (local && email === "y.kudo@ist.hokudai.ac.jp");
+  return configured.includes(email) || (local && email === "local-admin@ist.hokudai.ac.jp");
 }

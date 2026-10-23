@@ -16,6 +16,10 @@ test("contains the LabTime application and a completed build", async () => {
   assert.match(page, />予約カレンダー</);
   assert.match(page, />自分の予約</);
   assert.match(page, /\/cdn-cgi\/access\/logout/);
+  assert.match(page, /表示名を登録してください/);
+  assert.match(page, /EPR/);
+  assert.match(page, /MRI/);
+  assert.doesNotMatch(page, /工藤|洋平|氏名を登録/);
   assert.doesNotMatch(page, /Your site is taking shape|Codex is working/i);
 });
 
